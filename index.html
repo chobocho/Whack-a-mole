@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover" />
+  <meta name="theme-color" content="#1a0e2e" />
+  <title>🔨 두더지 잡기 (Whack-a-mole)</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #0a0518;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    #game {
+      display: block;
+      background: #0a0518;
+      image-rendering: optimizeQuality;
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+    #fallback {
+      color: #fff;
+      text-align: center;
+      padding: 40px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="960" height="640" aria-label="두더지 잡기 게임"></canvas>
+  <noscript>
+    <div id="fallback">JavaScript가 필요합니다.</div>
+  </noscript>
+  <script type="module" src="./dist/main.js"></script>
+</body>
+</html>

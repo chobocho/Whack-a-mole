@@ -1,0 +1,15 @@
+{
+  "name": "whack-a-mole",
+  "version": "1.0.0",
+  "description": "1인용 두더지 잡기 — 100% Canvas + TypeScript + IndexedDB, 외부 의존성 0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,2007 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no,viewport-fit=cover" />
+  <meta name="theme-color" content="#1a0e2e" />
+  <title>🔨 두더지 잡기 (Whack-a-mole)</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #0a0518;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    #game {
+      display: block;
+      background: #0a0518;
+      image-rendering: optimizeQuality;
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+    #fallback {
+      color: #fff;
+      text-align: center;
+      padding: 40px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="960" height="640" aria-label="두더지 잡기 게임"></canvas>
+  <noscript>
+    <div id="fallback">JavaScript가 필요합니다.</div>
+  </noscript>
+  <script>
+(function(){
+"use strict";
+// ===== dist/audio.js =====
+/**
+ * Pure synthesized sound effects using Web Audio API.
+ * No external audio files — every sound is generated on the fly.
+ */
+class AudioEngine {
+    constructor() {
+        this.ctx = null;
+        this.master = null;
+        this.muted = false;
+        this.resumed = false;
+    }
+    init() {
+        if (this.ctx)
+            return;
+        try {
+            const Ctor = window
+                .AudioContext ||
+                window.webkitAudioContext;
+            if (!Ctor)
+                return;
+            this.ctx = new Ctor();
+            this.master = this.ctx.createGain();
+            this.master.gain.value = 0.5;
+            this.master.connect(this.ctx.destination);
+        }
+        catch (_e) {
+            this.ctx = null;
+        }
+    }
+    /** Must be called from a user gesture handler to unlock audio on iOS/Safari. */
+    resume() {
+        if (!this.ctx)
+            this.init();
+        if (this.ctx && this.ctx.state === "suspended") {
+            this.ctx.resume().catch(() => undefined);
+        }
+        this.resumed = true;
+    }
+    setMuted(m) {
+        this.muted = m;
+    }
+    isMuted() {
+        return this.muted;
+    }
+    toggleMuted() {
+        this.muted = !this.muted;
+        return this.muted;
+    }
+    play(name) {
+        if (this.muted)
+            return;
+        if (!this.ctx || !this.master)
+            return;
+        if (!this.resumed)
+            return;
+        try {
+            switch (name) {
+                case "hit":
+                    this.beep([{ f: 600, t: 0.0, d: 0.04 }, { f: 320, t: 0.04, d: 0.05 }], "square", 0.18);
+                    break;
+                case "golden":
+                    this.beep([
+                        { f: 880, t: 0.0, d: 0.05 },
+                        { f: 1320, t: 0.05, d: 0.05 },
+                        { f: 1760, t: 0.1, d: 0.08 },
+                    ], "triangle", 0.22);
+                    break;
+                case "bomb":
+                    this.noise(0.25, 0.32, 800, 80);
+                    break;
+                case "flower":
+                    // sharp warning "삐-"
+                    this.beep([{ f: 1200, t: 0.0, d: 0.25 }], "sawtooth", 0.18);
+                    break;
+                case "combo":
+                    this.beep([
+                        { f: 740, t: 0.0, d: 0.04 },
+                        { f: 988, t: 0.04, d: 0.05 },
+                    ], "triangle", 0.16);
+                    break;
+                case "fever":
+                    this.beep([
+                        { f: 523, t: 0.0, d: 0.08 },
+                        { f: 659, t: 0.08, d: 0.08 },
+                        { f: 784, t: 0.16, d: 0.08 },
+                        { f: 1047, t: 0.24, d: 0.16 },
+                    ], "square", 0.2);
+                    break;
+                case "stage_clear":
+                    this.beep([
+                        { f: 523, t: 0.0, d: 0.12 },
+                        { f: 659, t: 0.12, d: 0.12 },
+                        { f: 784, t: 0.24, d: 0.12 },
+                        { f: 1047, t: 0.36, d: 0.24 },
+                    ], "triangle", 0.22);
+                    break;
+                case "game_over":
+                    this.beep([
+                        { f: 440, t: 0.0, d: 0.15 },
+                        { f: 349, t: 0.15, d: 0.15 },
+                        { f: 262, t: 0.3, d: 0.3 },
+                    ], "sawtooth", 0.18);
+                    break;
+                case "miss":
+                    this.beep([{ f: 220, t: 0.0, d: 0.08 }], "sine", 0.12);
+                    break;
+                case "click":
+                    this.beep([{ f: 880, t: 0.0, d: 0.03 }], "square", 0.1);
+                    break;
+            }
+        }
+        catch (_e) {
+            /* swallow */
+        }
+    }
+    beep(notes, type, peakGain) {
+        if (!this.ctx || !this.master)
+            return;
+        const ctx = this.ctx;
+        const now = ctx.currentTime;
+        for (const n of notes) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(n.f, now + n.t);
+            gain.gain.setValueAtTime(0, now + n.t);
+            gain.gain.linearRampToValueAtTime(peakGain, now + n.t + 0.005);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + n.t + n.d);
+            osc.connect(gain);
+            gain.connect(this.master);
+            osc.start(now + n.t);
+            osc.stop(now + n.t + n.d + 0.02);
+        }
+    }
+    noise(duration, peakGain, startHz, endHz) {
+        if (!this.ctx || !this.master)
+            return;
+        const ctx = this.ctx;
+        const sampleCount = Math.floor(ctx.sampleRate * duration);
+        const buf = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < sampleCount; i++) {
+            // exponentially decaying noise burst
+            const env = Math.exp(-3 * (i / sampleCount));
+            data[i] = (Math.random() * 2 - 1) * env;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        const now = ctx.currentTime;
+        filter.frequency.setValueAtTime(startHz, now);
+        filter.frequency.exponentialRampToValueAtTime(Math.max(40, endHz), now + duration);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(peakGain, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        src.start(now);
+        src.stop(now + duration + 0.02);
+    }
+}
+const audio = new AudioEngine();
+//# sourceMappingURL=audio.js.map
+// ===== dist/entities.js =====
+/**
+ * Game entities — moles, golden moles, bombs, flowers — plus particles.
+ * All visuals are drawn procedurally with Canvas API primitives.
+ */
+function createEntity(kind, holeIndex, lifeSeconds) {
+    return {
+        kind,
+        holeIndex,
+        state: 0 /* EntityState.Rising */,
+        stateTimer: 0.18,
+        age: 0,
+        rise: 0,
+        hitFlash: 0,
+        seed: Math.random(),
+        alive: true,
+    };
+}
+function updateEntity(e, dt, idleDuration) {
+    e.age += dt;
+    e.stateTimer -= dt;
+    if (e.hitFlash > 0)
+        e.hitFlash = Math.max(0, e.hitFlash - dt);
+    switch (e.state) {
+        case 0 /* EntityState.Rising */:
+            e.rise = Math.min(1, e.rise + dt / 0.18);
+            if (e.stateTimer <= 0) {
+                e.state = 1 /* EntityState.Idle */;
+                e.stateTimer = idleDuration;
+                e.rise = 1;
+            }
+            break;
+        case 1 /* EntityState.Idle */:
+            if (e.stateTimer <= 0) {
+                e.state = 2 /* EntityState.Falling */;
+                e.stateTimer = 0.22;
+            }
+            break;
+        case 2 /* EntityState.Falling */:
+            e.rise = Math.max(0, e.rise - dt / 0.22);
+            if (e.stateTimer <= 0) {
+                e.state = 3 /* EntityState.Dead */;
+                e.alive = false;
+            }
+            break;
+        case 3 /* EntityState.Dead */:
+            e.alive = false;
+            break;
+    }
+}
+function drawHole(ctx, h) {
+    // dirt mound around hole
+    const grad = ctx.createRadialGradient(h.cx, h.cy + h.ry * 0.4, h.rx * 0.2, h.cx, h.cy + h.ry * 0.5, h.rx * 1.6);
+    grad.addColorStop(0, "#3a2718");
+    grad.addColorStop(0.6, "#241408");
+    grad.addColorStop(1, "rgba(36,20,8,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(h.cx, h.cy + h.ry * 0.4, h.rx * 1.5, h.ry * 1.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // hole opening
+    ctx.fillStyle = "#0a0503";
+    ctx.beginPath();
+    ctx.ellipse(h.cx, h.cy, h.rx, h.ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // rim highlight
+    ctx.strokeStyle = "rgba(255,200,140,0.18)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(h.cx, h.cy - 1, h.rx * 0.95, h.ry * 0.9, 0, Math.PI * 0.05, Math.PI * 0.95);
+    ctx.stroke();
+}
+function drawEntity(ctx, e, h) {
+    // Clip to the hole so the entity rises out of it cleanly
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(h.cx, h.cy, h.rx, h.ry, 0, 0, Math.PI * 2);
+    ctx.rect(h.cx - h.rx * 1.6, h.cy - h.ry * 4, h.rx * 3.2, h.ry * 4);
+    ctx.clip();
+    const popOffset = (1 - e.rise) * h.ry * 1.8;
+    const baseY = h.cy - h.ry * 0.2 + popOffset;
+    const bodyW = h.rx * 1.4;
+    const bodyH = h.ry * 1.8;
+    switch (e.kind) {
+        case "mole":
+            drawMole(ctx, h.cx, baseY, bodyW, bodyH, "#7a5a3a", "#a8845a", e);
+            break;
+        case "golden":
+            drawMole(ctx, h.cx, baseY, bodyW, bodyH, "#c79420", "#ffd866", e);
+            drawCrown(ctx, h.cx, baseY - bodyH * 0.55, bodyW * 0.5);
+            break;
+        case "bomb":
+            drawBomb(ctx, h.cx, baseY, bodyW, bodyH, e);
+            break;
+        case "flower":
+            drawFlower(ctx, h.cx, baseY, bodyW, bodyH, e);
+            break;
+    }
+    ctx.restore();
+}
+function drawMole(ctx, cx, cy, w, h, dark, light, e) {
+    // body
+    const bodyGrad = ctx.createRadialGradient(cx - w * 0.2, cy - h * 0.3, w * 0.1, cx, cy, w);
+    bodyGrad.addColorStop(0, light);
+    bodyGrad.addColorStop(1, dark);
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - h * 0.1, w * 0.7, h * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // belly
+    ctx.fillStyle = "rgba(255,230,200,0.5)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + h * 0.05, w * 0.35, h * 0.28, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // ears (small arcs)
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.arc(cx - w * 0.42, cy - h * 0.45, w * 0.12, 0, Math.PI * 2);
+    ctx.arc(cx + w * 0.42, cy - h * 0.45, w * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffb7a3";
+    ctx.beginPath();
+    ctx.arc(cx - w * 0.42, cy - h * 0.45, w * 0.06, 0, Math.PI * 2);
+    ctx.arc(cx + w * 0.42, cy - h * 0.45, w * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    // eyes
+    const eyeY = cy - h * 0.2;
+    const eyeDX = w * 0.18;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.arc(cx - eyeDX, eyeY, w * 0.05, 0, Math.PI * 2);
+    ctx.arc(cx + eyeDX, eyeY, w * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    // eye highlight
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(cx - eyeDX + w * 0.018, eyeY - w * 0.018, w * 0.018, 0, Math.PI * 2);
+    ctx.arc(cx + eyeDX + w * 0.018, eyeY - w * 0.018, w * 0.018, 0, Math.PI * 2);
+    ctx.fill();
+    // nose (bezier petal)
+    ctx.fillStyle = "#ff6f61";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - h * 0.05);
+    ctx.bezierCurveTo(cx - w * 0.08, cy - h * 0.12, cx - w * 0.08, cy - h * 0.02, cx, cy - h * 0.0);
+    ctx.bezierCurveTo(cx + w * 0.08, cy - h * 0.02, cx + w * 0.08, cy - h * 0.12, cx, cy - h * 0.05);
+    ctx.fill();
+    // whiskers
+    ctx.strokeStyle = "rgba(20,10,5,0.5)";
+    ctx.lineWidth = 1;
+    for (let i = -1; i <= 1; i++) {
+        if (i === 0)
+            continue;
+        ctx.beginPath();
+        ctx.moveTo(cx - w * 0.05, cy - h * 0.02);
+        ctx.lineTo(cx - w * 0.35, cy - h * 0.02 + i * 4);
+        ctx.moveTo(cx + w * 0.05, cy - h * 0.02);
+        ctx.lineTo(cx + w * 0.35, cy - h * 0.02 + i * 4);
+        ctx.stroke();
+    }
+    // hit flash overlay
+    if (e.hitFlash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${e.hitFlash * 0.6})`;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy - h * 0.1, w * 0.7, h * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+function drawCrown(ctx, cx, cy, w) {
+    ctx.fillStyle = "#ffd700";
+    ctx.beginPath();
+    ctx.moveTo(cx - w, cy + w * 0.4);
+    ctx.lineTo(cx - w * 0.66, cy - w * 0.3);
+    ctx.lineTo(cx - w * 0.33, cy + w * 0.2);
+    ctx.lineTo(cx, cy - w * 0.5);
+    ctx.lineTo(cx + w * 0.33, cy + w * 0.2);
+    ctx.lineTo(cx + w * 0.66, cy - w * 0.3);
+    ctx.lineTo(cx + w, cy + w * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(120,80,0,0.6)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // jewel
+    ctx.fillStyle = "#ff3060";
+    ctx.beginPath();
+    ctx.arc(cx, cy + w * 0.05, w * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+}
+function drawBomb(ctx, cx, cy, w, h, e) {
+    // pulse
+    const pulse = 1 + Math.sin(e.age * 16) * 0.04;
+    // body
+    const r = w * 0.5 * pulse;
+    const grad = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.4, r * 0.1, cx, cy, r);
+    grad.addColorStop(0, "#5a5a6a");
+    grad.addColorStop(1, "#161620");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // highlight
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.35, cy - r * 0.35, r * 0.18, r * 0.1, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+    // fuse holder
+    ctx.fillStyle = "#2a1810";
+    ctx.fillRect(cx - r * 0.18, cy - r * 1.05, r * 0.36, r * 0.18);
+    // fuse curve (bezier)
+    ctx.strokeStyle = "#8b6b3a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r * 1.05);
+    ctx.bezierCurveTo(cx + r * 0.6, cy - r * 1.5, cx - r * 0.4, cy - r * 1.8, cx + r * 0.2, cy - r * 2.0);
+    ctx.stroke();
+    // spark
+    const sparkX = cx + r * 0.2;
+    const sparkY = cy - r * 2.0;
+    ctx.fillStyle = "#ffeb3b";
+    ctx.beginPath();
+    ctx.arc(sparkX, sparkY, r * 0.18 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,160,40,0.7)";
+    ctx.beginPath();
+    ctx.arc(sparkX, sparkY, r * 0.3 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    if (e.hitFlash > 0) {
+        ctx.fillStyle = `rgba(255,180,80,${e.hitFlash * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 1.4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+function drawFlower(ctx, cx, cy, w, h, e) {
+    const petalColor = e.seed > 0.66 ? "#ff5fa2" : e.seed > 0.33 ? "#a45cff" : "#ff7c4a";
+    const petalLight = e.seed > 0.66 ? "#ffb1ce" : e.seed > 0.33 ? "#d3a4ff" : "#ffb98e";
+    // stem
+    ctx.strokeStyle = "#3aa84e";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + h * 0.45);
+    ctx.bezierCurveTo(cx + w * 0.05, cy + h * 0.15, cx - w * 0.05, cy - h * 0.05, cx, cy - h * 0.15);
+    ctx.stroke();
+    // leaf (bezier)
+    ctx.fillStyle = "#4ec25e";
+    ctx.beginPath();
+    ctx.moveTo(cx + w * 0.02, cy + h * 0.1);
+    ctx.bezierCurveTo(cx + w * 0.3, cy + h * 0.0, cx + w * 0.35, cy + h * 0.25, cx + w * 0.05, cy + h * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    // 6 petals (alternating dark/light)
+    const sway = Math.sin(e.age * 4) * 0.1;
+    const petalR = w * 0.22;
+    const cxBlossom = cx;
+    const cyBlossom = cy - h * 0.2;
+    for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + sway;
+        const px = cxBlossom + Math.cos(a) * petalR * 0.9;
+        const py = cyBlossom + Math.sin(a) * petalR * 0.9;
+        const grad = ctx.createRadialGradient(px, py, 1, px, py, petalR);
+        grad.addColorStop(0, petalLight);
+        grad.addColorStop(1, petalColor);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(px, py, petalR * 0.95, petalR * 0.7, a, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    // center
+    ctx.fillStyle = "#ffd84a";
+    ctx.beginPath();
+    ctx.arc(cxBlossom, cyBlossom, petalR * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#b67d10";
+    ctx.beginPath();
+    ctx.arc(cxBlossom, cyBlossom, petalR * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    // Subtle "danger" pulse outline
+    const dangerPulse = 0.4 + Math.sin(e.age * 8) * 0.15;
+    ctx.strokeStyle = `rgba(255,60,80,${dangerPulse * 0.5})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cxBlossom, cyBlossom, petalR * 1.4, 0, Math.PI * 2);
+    ctx.stroke();
+    if (e.hitFlash > 0) {
+        ctx.fillStyle = `rgba(255,60,80,${e.hitFlash * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(cxBlossom, cyBlossom, petalR * 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+/* -------------------- Particles -------------------- */
+function spawnBurst(arr, x, y, color, count, speed = 220, shape = "dot") {
+    for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const s = speed * (0.4 + Math.random() * 0.8);
+        arr.push({
+            x,
+            y,
+            vx: Math.cos(a) * s,
+            vy: Math.sin(a) * s - speed * 0.3,
+            life: 0.6 + Math.random() * 0.3,
+            maxLife: 0.9,
+            size: 2 + Math.random() * 3,
+            color,
+            gravity: 600,
+            shape,
+        });
+    }
+}
+function updateParticles(arr, dt) {
+    for (let i = arr.length - 1; i >= 0; i--) {
+        const p = arr[i];
+        p.life -= dt;
+        if (p.life <= 0) {
+            arr.splice(i, 1);
+            continue;
+        }
+        p.vy += p.gravity * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+    }
+}
+function drawParticles(ctx, arr) {
+    for (const p of arr) {
+        const alpha = Math.max(0, p.life / p.maxLife);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        if (p.shape === "dot") {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        else if (p.shape === "star") {
+            drawStar(ctx, p.x, p.y, p.size * 1.6, p.size * 0.7, 5);
+        }
+        else {
+            ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+function drawStar(ctx, cx, cy, outer, inner, points) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+        const r = i % 2 === 0 ? outer : inner;
+        const a = (Math.PI * i) / points - Math.PI / 2;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        if (i === 0)
+            ctx.moveTo(x, y);
+        else
+            ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+}
+/* -------------------- Floating text -------------------- */
+function spawnFloatingText(arr, x, y, text, color, size = 28) {
+    arr.push({
+        x,
+        y,
+        vy: -90,
+        text,
+        color,
+        life: 1.0,
+        maxLife: 1.0,
+        size,
+    });
+}
+function updateFloatingTexts(arr, dt) {
+    for (let i = arr.length - 1; i >= 0; i--) {
+        const t = arr[i];
+        t.life -= dt;
+        t.y += t.vy * dt;
+        t.vy += 20 * dt; // gentle deceleration
+        if (t.life <= 0)
+            arr.splice(i, 1);
+    }
+}
+function drawFloatingTexts(ctx, arr) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const t of arr) {
+        const a = Math.max(0, t.life / t.maxLife);
+        ctx.globalAlpha = a;
+        ctx.font = `900 ${t.size}px system-ui, sans-serif`;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(0,0,0,0.7)";
+        ctx.strokeText(t.text, t.x, t.y);
+        ctx.fillStyle = t.color;
+        ctx.fillText(t.text, t.x, t.y);
+    }
+    ctx.globalAlpha = 1;
+}
+//# sourceMappingURL=entities.js.map
+// ===== dist/input.js =====
+/**
+ * Multi-input handler: mouse, touch, keyboard.
+ * Translates raw coordinates into the canvas's internal coordinate space.
+ *
+ * Keyboard mapping for the 3×3 grid (top-left → bottom-right):
+ *   QWE / ASD / ZXC      (also numpad 789 / 456 / 123)
+ */
+const KEY_TO_INDEX = {
+    // QWE / ASD / ZXC
+    q: 0, w: 1, e: 2,
+    a: 3, s: 4, d: 5,
+    z: 6, x: 7, c: 8,
+    // numpad
+    Numpad7: 0, Numpad8: 1, Numpad9: 2,
+    Numpad4: 3, Numpad5: 4, Numpad6: 5,
+    Numpad1: 6, Numpad2: 7, Numpad3: 8,
+};
+class InputManager {
+    constructor(canvas) {
+        this.listeners = [];
+        this.keyListeners = [];
+        this.canvas = canvas;
+        this.attach();
+    }
+    onHit(fn) {
+        this.listeners.push(fn);
+    }
+    onKey(fn) {
+        this.keyListeners.push(fn);
+    }
+    attach() {
+        const handleMouse = (e) => {
+            const hit = this.translate(e.clientX, e.clientY, -1);
+            this.emit(hit);
+        };
+        const handleTouch = (e) => {
+            e.preventDefault();
+            if (e.changedTouches.length === 0)
+                return;
+            const t = e.changedTouches[0];
+            const hit = this.translate(t.clientX, t.clientY, -1);
+            this.emit(hit);
+        };
+        const handleKey = (e) => {
+            // Notify key listeners for menu navigation (Enter, Esc, etc.)
+            for (const l of this.keyListeners)
+                l(e.key);
+            // Direct grid mapping
+            const key = e.code in KEY_TO_INDEX ? e.code : e.key.toLowerCase();
+            const idx = KEY_TO_INDEX[key];
+            if (idx === undefined)
+                return;
+            e.preventDefault();
+            // x,y will be resolved by the game scene against its current grid layout
+            this.emit({ x: -1, y: -1, keyIndex: idx });
+        };
+        this.canvas.addEventListener("mousedown", handleMouse);
+        this.canvas.addEventListener("touchstart", handleTouch, { passive: false });
+        window.addEventListener("keydown", handleKey);
+    }
+    translate(clientX, clientY, keyIndex) {
+        const rect = this.canvas.getBoundingClientRect();
+        // Map screen coords back to the canvas's internal coordinate system
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY,
+            keyIndex,
+        };
+    }
+    emit(hit) {
+        for (const l of this.listeners)
+            l(hit);
+    }
+}
+//# sourceMappingURL=input.js.map
+// ===== dist/layout.js =====
+/**
+ * Responsive layout — produces a 3x3 or 3x4 grid of holes adapted to aspect ratio.
+ */
+function computeLayout(W, H) {
+    const isPortrait = H > W * 1.05;
+    // wider screen -> 4x3, portrait -> 3x4
+    const cols = isPortrait ? 3 : 4;
+    const rows = isPortrait ? 4 : 3;
+    // Reserve top area for HUD
+    const topInset = Math.max(80, H * 0.16);
+    const bottomInset = Math.max(24, H * 0.04);
+    const gridH = H - topInset - bottomInset;
+    const gridW = W - 32;
+    const cellW = gridW / cols;
+    const cellH = gridH / rows;
+    const rx = Math.min(cellW * 0.35, cellH * 0.32);
+    const ry = rx * 0.45;
+    const holes = [];
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const cx = 16 + cellW * (c + 0.5);
+            const cy = topInset + cellH * (r + 0.5);
+            holes.push({ cx, cy, rx, ry });
+        }
+    }
+    return { holes, cols, rows, topInset, W, H };
+}
+function pointInHole(x, y, h) {
+    // Use an expanded hit area (~1.5x) so the body above the hole is hittable
+    const dx = (x - h.cx) / (h.rx * 1.5);
+    const dy = (y - (h.cy - h.ry * 0.6)) / (h.ry * 2.4);
+    return dx * dx + dy * dy <= 1;
+}
+//# sourceMappingURL=layout.js.map
+// ===== dist/storage.js =====
+/**
+ * Persistence layer: IndexedDB primary, LocalStorage fallback.
+ * Stores best score, current stage, per-stage star rating.
+ */
+const DB_NAME = "whack-a-mole-db";
+const DB_VERSION = 1;
+const STORE = "savedata";
+const KEY = "main";
+const LS_KEY = "whack-a-mole:save:v1";
+const DEFAULT_SAVE = {
+    bestScore: 0,
+    maxStageReached: 1,
+    stageStars: {},
+    totalStars: 0,
+    lastPlayed: 0,
+};
+let dbPromise = null;
+function openDb() {
+    if (dbPromise)
+        return dbPromise;
+    dbPromise = new Promise((resolve) => {
+        if (typeof indexedDB === "undefined") {
+            resolve(null);
+            return;
+        }
+        try {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(STORE)) {
+                    db.createObjectStore(STORE);
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => {
+                console.warn("[storage] IndexedDB open failed, falling back to LocalStorage");
+                resolve(null);
+            };
+            req.onblocked = () => resolve(null);
+        }
+        catch (_e) {
+            resolve(null);
+        }
+    });
+    return dbPromise;
+}
+function lsLoad() {
+    try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw)
+            return { ...DEFAULT_SAVE };
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULT_SAVE, ...parsed };
+    }
+    catch (_e) {
+        return { ...DEFAULT_SAVE };
+    }
+}
+function lsSave(data) {
+    try {
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+    }
+    catch (_e) {
+        /* quota exceeded or disabled — silently ignore */
+    }
+}
+async function loadSave() {
+    const db = await openDb();
+    if (!db)
+        return lsLoad();
+    return new Promise((resolve) => {
+        try {
+            const tx = db.transaction(STORE, "readonly");
+            const req = tx.objectStore(STORE).get(KEY);
+            req.onsuccess = () => {
+                const value = req.result;
+                if (!value) {
+                    // Migrate from LocalStorage if present
+                    const ls = lsLoad();
+                    resolve(ls);
+                }
+                else {
+                    resolve({ ...DEFAULT_SAVE, ...value });
+                }
+            };
+            req.onerror = () => resolve(lsLoad());
+        }
+        catch (_e) {
+            resolve(lsLoad());
+        }
+    });
+}
+async function persistSave(data) {
+    // Always mirror to LocalStorage as backup
+    lsSave(data);
+    const db = await openDb();
+    if (!db)
+        return;
+    return new Promise((resolve) => {
+        try {
+            const tx = db.transaction(STORE, "readwrite");
+            tx.objectStore(STORE).put(data, KEY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+            tx.onabort = () => resolve();
+        }
+        catch (_e) {
+            resolve();
+        }
+    });
+}
+function recomputeTotalStars(data) {
+    let total = 0;
+    for (const k of Object.keys(data.stageStars)) {
+        total += data.stageStars[Number(k)] ?? 0;
+    }
+    return total;
+}
+//# sourceMappingURL=storage.js.map
+// ===== dist/ui.js =====
+/**
+ * Pure-canvas UI primitives: rounded panels, buttons, text, stars.
+ */
+
+function pointInRect(x, y, r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+function roundedRect(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+}
+function drawPanel(ctx, r, fill = "rgba(20,8,40,0.85)", stroke = "rgba(180,140,255,0.5)", radius = 18) {
+    ctx.save();
+    roundedRect(ctx, r.x, r.y, r.w, r.h, radius);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = stroke;
+    ctx.stroke();
+    ctx.restore();
+}
+function drawButton(ctx, b, hovered = false, primary = false) {
+    const enabled = b.enabled !== false;
+    const bg = !enabled
+        ? "rgba(60,40,80,0.4)"
+        : primary
+            ? hovered
+                ? "rgba(160,90,255,0.95)"
+                : "rgba(120,70,220,0.9)"
+            : hovered
+                ? "rgba(60,40,100,0.95)"
+                : "rgba(40,20,80,0.85)";
+    const fg = !enabled ? "rgba(255,255,255,0.4)" : "#ffffff";
+    drawPanel(ctx, b, bg, primary ? "rgba(255,210,90,0.8)" : "rgba(180,140,255,0.6)", 14);
+    ctx.font = `800 ${Math.floor(b.h * 0.42)}px system-ui, sans-serif`;
+    ctx.fillStyle = fg;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 2);
+}
+function drawCenteredText(ctx, text, x, y, size, color, weight = 800, outline = "rgba(0,0,0,0.6)") {
+    ctx.font = `${weight} ${size}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (outline) {
+        ctx.lineWidth = Math.max(2, size * 0.08);
+        ctx.strokeStyle = outline;
+        ctx.strokeText(text, x, y);
+    }
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+}
+function drawStars(ctx, cx, cy, total, earned, size, anim = 1) {
+    const spacing = size * 2.5;
+    const start = cx - ((total - 1) * spacing) / 2;
+    for (let i = 0; i < total; i++) {
+        const x = start + i * spacing;
+        // back (empty)
+        ctx.fillStyle = "rgba(255,255,255,0.15)";
+        drawStar(ctx, x, cy, size, size * 0.45, 5);
+        if (i < earned) {
+            const t = Math.max(0, Math.min(1, (anim - i * 0.25) * 1.6));
+            if (t <= 0)
+                continue;
+            const ease = 1 - Math.pow(1 - t, 3);
+            const s = size * (0.4 + 0.6 * ease);
+            ctx.save();
+            ctx.translate(x, cy);
+            ctx.scale(s / size, s / size);
+            // glow
+            ctx.fillStyle = "rgba(255,220,90,0.4)";
+            drawStar(ctx, 0, 0, size * 1.5, size * 0.65, 5);
+            const grad = ctx.createRadialGradient(0, 0, size * 0.1, 0, 0, size * 1.2);
+            grad.addColorStop(0, "#fff7c2");
+            grad.addColorStop(1, "#ffc02e");
+            ctx.fillStyle = grad;
+            drawStar(ctx, 0, 0, size, size * 0.45, 5);
+            ctx.restore();
+        }
+    }
+}
+function drawHearts(ctx, x, y, total, alive, size) {
+    for (let i = 0; i < total; i++) {
+        const cx = x + i * (size + 6);
+        const filled = i < alive;
+        drawHeart(ctx, cx, y, size, filled ? "#ff3a6a" : "rgba(255,255,255,0.18)");
+    }
+}
+function drawHeart(ctx, cx, cy, size, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    const s = size;
+    ctx.moveTo(cx, cy + s * 0.3);
+    ctx.bezierCurveTo(cx - s, cy - s * 0.3, cx - s * 0.5, cy - s, cx, cy - s * 0.3);
+    ctx.bezierCurveTo(cx + s * 0.5, cy - s, cx + s, cy - s * 0.3, cx, cy + s * 0.3);
+    ctx.fill();
+}
+function drawProgressBar(ctx, r, value, color, bg = "rgba(255,255,255,0.12)") {
+    roundedRect(ctx, r.x, r.y, r.w, r.h, r.h / 2);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    const v = Math.max(0, Math.min(1, value));
+    if (v > 0) {
+        ctx.save();
+        roundedRect(ctx, r.x, r.y, r.w * v, r.h, r.h / 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.restore();
+    }
+}
+//# sourceMappingURL=ui.js.map
+// ===== dist/scenes/menu.js =====
+/**
+ * Main menu — start, stage select, mute toggle, best score.
+ */
+
+
+class MenuScene {
+    constructor(game) {
+        this.buttons = [];
+        this.hovered = -1;
+        this.selectedStage = 1;
+        this.time = 0;
+        this.game = game;
+    }
+    enter() {
+        this.selectedStage = Math.min(this.game.save.maxStageReached, 30);
+        this.layoutButtons();
+    }
+    exit() {
+        /* nothing */
+    }
+    layoutButtons() {
+        const W = this.game.width;
+        const H = this.game.height;
+        const cx = W / 2;
+        const bw = Math.min(280, W * 0.55);
+        const bh = 64;
+        this.buttons = [
+            { x: cx - bw / 2, y: H * 0.58, w: bw, h: bh, label: `START — STAGE ${this.selectedStage}` },
+            { x: cx - bw / 2 - bh - 12, y: H * 0.58, w: bh, h: bh, label: "◀" },
+            { x: cx + bw / 2 + 12, y: H * 0.58, w: bh, h: bh, label: "▶" },
+            { x: cx - bw / 2, y: H * 0.58 + bh + 16, w: bw, h: 52, label: "STAGE 1부터 시작" },
+            { x: W - 64 - 16, y: 16, w: 64, h: 56, label: audio.isMuted() ? "🔇" : "🔊" },
+        ];
+    }
+    update(dt) {
+        this.time += dt;
+    }
+    render(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        // Title
+        const pulse = 1 + Math.sin(this.time * 2) * 0.04;
+        ctx.save();
+        ctx.translate(W / 2, H * 0.22);
+        ctx.scale(pulse, pulse);
+        drawCenteredText(ctx, "🔨 두더지 잡기", 0, 0, 56, "#ffd866");
+        drawCenteredText(ctx, "Whack-a-mole", 0, 46, 22, "rgba(255,255,255,0.7)", 600);
+        ctx.restore();
+        // Best score panel
+        const panelW = Math.min(420, W * 0.7);
+        const panel = { x: W / 2 - panelW / 2, y: H * 0.34, w: panelW, h: 130 };
+        drawPanel(ctx, panel);
+        drawCenteredText(ctx, "BEST SCORE", panel.x + panel.w / 2, panel.y + 28, 16, "rgba(255,255,255,0.65)", 700);
+        drawCenteredText(ctx, this.game.save.bestScore.toLocaleString(), panel.x + panel.w / 2, panel.y + 64, 36, "#fff", 900);
+        drawCenteredText(ctx, `⭐ ${this.game.save.totalStars}    🏁 STAGE ${this.game.save.maxStageReached}까지 도달`, panel.x + panel.w / 2, panel.y + 102, 14, "rgba(255,210,90,0.85)", 700);
+        // Buttons
+        for (let i = 0; i < this.buttons.length; i++) {
+            const b = this.buttons[i];
+            const primary = i === 0;
+            drawButton(ctx, b, this.hovered === i, primary);
+        }
+        // Stage stars row
+        const maxShow = 5;
+        const startIdx = Math.max(1, this.selectedStage - 2);
+        const stageRowY = H * 0.5;
+        drawCenteredText(ctx, `현재 선택: STAGE ${this.selectedStage}`, W / 2, stageRowY - 16, 16, "rgba(255,255,255,0.75)", 700);
+        const earned = this.game.save.stageStars[this.selectedStage] ?? 0;
+        drawStars(ctx, W / 2, stageRowY + 16, 3, earned, 14, 999);
+        // Hint
+        drawCenteredText(ctx, "마우스/터치/키패드(QWE-ASD-ZXC, NumPad)로 두더지를 잡으세요", W / 2, H - 56, 14, "rgba(255,255,255,0.55)", 600);
+        drawCenteredText(ctx, "🌸 10판부터는 꽃이 함정! 절대 때리지 마세요", W / 2, H - 32, 13, "rgba(255,150,200,0.85)", 700);
+    }
+    onHit(hit) {
+        if (hit.keyIndex !== -1)
+            return;
+        this.hovered = -1;
+        for (let i = 0; i < this.buttons.length; i++) {
+            if (pointInRect(hit.x, hit.y, this.buttons[i])) {
+                audio.play("click");
+                this.handle(i);
+                return;
+            }
+        }
+    }
+    onKey(key) {
+        if (key === "Enter" || key === " ") {
+            audio.play("click");
+            this.game.toPlay(this.selectedStage);
+        }
+        else if (key === "ArrowLeft") {
+            this.selectedStage = Math.max(1, this.selectedStage - 1);
+            this.layoutButtons();
+            audio.play("click");
+        }
+        else if (key === "ArrowRight") {
+            this.selectedStage = Math.min(this.game.save.maxStageReached, this.selectedStage + 1);
+            this.layoutButtons();
+            audio.play("click");
+        }
+        else if (key.toLowerCase() === "m") {
+            audio.toggleMuted();
+            this.layoutButtons();
+        }
+    }
+    handle(i) {
+        if (i === 0) {
+            this.game.toPlay(this.selectedStage);
+        }
+        else if (i === 1) {
+            this.selectedStage = Math.max(1, this.selectedStage - 1);
+            this.layoutButtons();
+        }
+        else if (i === 2) {
+            this.selectedStage = Math.min(this.game.save.maxStageReached, this.selectedStage + 1);
+            this.layoutButtons();
+        }
+        else if (i === 3) {
+            this.selectedStage = 1;
+            this.game.toPlay(1);
+        }
+        else if (i === 4) {
+            audio.toggleMuted();
+            this.layoutButtons();
+        }
+    }
+}
+//# sourceMappingURL=menu.js.map
+// ===== dist/scoring.js =====
+/**
+ * Score, combo, fever and star-rating logic.
+ */
+
+function makeScoreState(lives = 3) {
+    return {
+        score: 0,
+        combo: 0,
+        bestCombo: 0,
+        fever: false,
+        feverTimer: 0,
+        feverGauge: 0,
+        hits: 0,
+        misses: 0,
+        flowerHits: 0,
+        bombHits: 0,
+        goldenHits: 0,
+        lives,
+    };
+}
+const FEVER_DURATION = 5; // seconds
+const FEVER_REQUIRED_COMBO = 12;
+function onHitMole(s) {
+    s.hits++;
+    s.combo++;
+    s.bestCombo = Math.max(s.bestCombo, s.combo);
+    const mult = s.fever ? 3 : 1 + Math.floor(s.combo / 5);
+    const points = 100 * mult;
+    s.score += points;
+    audio.play("hit");
+    if (s.combo % 5 === 0 && s.combo > 0)
+        audio.play("combo");
+    bumpFeverGauge(s, 0.08);
+    return points;
+}
+function onHitGolden(s) {
+    s.hits++;
+    s.goldenHits++;
+    s.combo++;
+    s.bestCombo = Math.max(s.bestCombo, s.combo);
+    const mult = s.fever ? 3 : 1 + Math.floor(s.combo / 5);
+    const points = 500 * mult;
+    s.score += points;
+    audio.play("golden");
+    bumpFeverGauge(s, 0.2);
+    return points;
+}
+function onHitBomb(s) {
+    s.bombHits++;
+    s.combo = 0;
+    s.score = Math.max(0, s.score - 300);
+    s.lives = Math.max(0, s.lives - 1);
+    audio.play("bomb");
+    s.feverGauge = Math.max(0, s.feverGauge - 0.2);
+    return -300;
+}
+function onHitFlower(s) {
+    s.flowerHits++;
+    s.combo = 0;
+    s.score = Math.max(0, s.score - 500);
+    s.lives = Math.max(0, s.lives - 1);
+    audio.play("flower");
+    s.feverGauge = Math.max(0, s.feverGauge - 0.3);
+    return -500;
+}
+function onMiss(s) {
+    s.misses++;
+    s.combo = 0;
+    audio.play("miss");
+}
+function tickFever(s, dt) {
+    if (s.fever) {
+        s.feverTimer -= dt;
+        if (s.feverTimer <= 0) {
+            s.fever = false;
+            s.feverTimer = 0;
+            s.feverGauge = 0;
+        }
+    }
+}
+function bumpFeverGauge(s, amount) {
+    if (s.fever)
+        return;
+    s.feverGauge = Math.min(1, s.feverGauge + amount);
+    if (s.feverGauge >= 1 || s.combo >= FEVER_REQUIRED_COMBO) {
+        s.fever = true;
+        s.feverTimer = FEVER_DURATION;
+        audio.play("fever");
+    }
+}
+function computeStars(s, totalTime, remainingTime, goalScore) {
+    // Accuracy (excluding bomb/flower misses)
+    const attempts = s.hits + s.misses;
+    const accuracy = attempts === 0 ? 0 : s.hits / attempts;
+    // Combo factor: best combo relative to a benchmark
+    const comboFactor = Math.min(1, s.bestCombo / 15);
+    // Time bonus: fraction of time left
+    const timeBonus = Math.max(0, remainingTime) / totalTime;
+    let score = 0;
+    // Always 1 star if cleared
+    score = 1;
+    if (accuracy >= 0.75 && comboFactor >= 0.6)
+        score = 2;
+    if (accuracy >= 0.88 && comboFactor >= 0.85 && timeBonus >= 0.2)
+        score = 3;
+    // Soft floor: penalize many flower/bomb hits
+    if (s.flowerHits + s.bombHits >= 3)
+        score = Math.max(1, score - 1);
+    // If goal not met, no stars
+    if (s.score < goalScore)
+        score = 0;
+    return { accuracy, combo: comboFactor, timeBonus, total: score };
+}
+//# sourceMappingURL=scoring.js.map
+// ===== dist/stage.js =====
+/**
+ * Stage configuration and spawn heuristics.
+ *
+ * Designed so difficulty curves smoothly:
+ *   - early stages: only normal moles, generous timing.
+ *   - stage 4+: occasional golden moles.
+ *   - stage 6+: bombs start appearing.
+ *   - stage 10+: flowers (traps) appear — a hard tier.
+ */
+function getStageConfig(stage) {
+    const s = Math.max(1, stage);
+    // Smooth curves
+    const duration = 30; // each stage is 30s
+    const goalScore = 300 + (s - 1) * 220;
+    const spawnInterval = Math.max(0.32, 0.95 - (s - 1) * 0.06);
+    const idleDuration = Math.max(0.55, 1.4 - (s - 1) * 0.08);
+    const maxConcurrent = Math.min(6, 2 + Math.floor((s - 1) / 2));
+    // Probability mixing
+    let mole = 1.0;
+    let golden = 0;
+    let bomb = 0;
+    let flower = 0;
+    if (s >= 2)
+        golden = 0.06;
+    if (s >= 4)
+        golden = 0.1;
+    if (s >= 6)
+        bomb = 0.12;
+    if (s >= 8)
+        bomb = 0.18;
+    if (s >= 10) {
+        flower = 0.18;
+        bomb = 0.16;
+    }
+    if (s >= 12) {
+        flower = 0.24;
+        bomb = 0.18;
+    }
+    if (s >= 15) {
+        flower = 0.3;
+        bomb = 0.2;
+        golden = 0.08;
+    }
+    mole = Math.max(0.2, 1 - golden - bomb - flower);
+    return {
+        stage: s,
+        duration,
+        goalScore,
+        spawnInterval,
+        idleDuration,
+        maxConcurrent,
+        weights: { mole, golden, bomb, flower },
+    };
+}
+function pickEntityKind(cfg, rng = Math.random) {
+    const w = cfg.weights;
+    const total = w.mole + w.golden + w.bomb + w.flower;
+    let r = rng() * total;
+    if ((r -= w.mole) < 0)
+        return "mole";
+    if ((r -= w.golden) < 0)
+        return "golden";
+    if ((r -= w.bomb) < 0)
+        return "bomb";
+    return "flower";
+}
+//# sourceMappingURL=stage.js.map
+// ===== dist/scenes/play.js =====
+/**
+ * Playing scene — moles spawn, get whacked, score climbs, stage clears.
+ */
+
+
+
+
+
+
+class PlayScene {
+    constructor(game, stage) {
+        this.entities = [];
+        this.elapsed = 0;
+        this.spawnTimer = 0;
+        this.paused = false;
+        this.pauseButtons = [];
+        this.gameOverScheduled = false;
+        /** countdown before stage starts (READY → GO!) */
+        this.intro = 1.4;
+        this.game = game;
+        this.stage = stage;
+        this.cfg = getStageConfig(stage);
+        this.state = makeScoreState(3);
+    }
+    enter() {
+        audio.resume();
+        this.layoutPauseButtons();
+    }
+    exit() {
+        this.entities = [];
+    }
+    layoutPauseButtons() {
+        const W = this.game.width;
+        const H = this.game.height;
+        const bw = Math.min(240, W * 0.55);
+        const bh = 56;
+        this.pauseButtons = [
+            { x: W / 2 - bw / 2, y: H / 2, w: bw, h: bh, label: "▶ 계속하기" },
+            { x: W / 2 - bw / 2, y: H / 2 + bh + 12, w: bw, h: bh, label: "메뉴로" },
+        ];
+    }
+    update(dt) {
+        if (this.paused)
+            return;
+        if (this.intro > 0) {
+            this.intro -= dt;
+            return;
+        }
+        this.elapsed += dt;
+        tickFever(this.state, dt);
+        const cfg = this.cfg;
+        // spawn
+        this.spawnTimer -= dt;
+        if (this.spawnTimer <= 0) {
+            this.trySpawn();
+            const variance = cfg.spawnInterval * (0.6 + Math.random() * 0.7);
+            this.spawnTimer = variance;
+        }
+        // update entities
+        for (const e of this.entities) {
+            updateEntity(e, dt, cfg.idleDuration);
+            // Auto-miss when a mole/golden escapes without being hit
+            if (!e.alive && e.state === 3 /* EntityState.Dead */ && !e._scored) {
+                e._scored = true;
+                if (e.kind === "mole" || e.kind === "golden") {
+                    onMiss(this.state);
+                }
+            }
+        }
+        this.entities = this.entities.filter((e) => e.alive);
+        // Fever screen burst
+        if (this.state.fever && Math.random() < 0.4) {
+            const W = this.game.width;
+            const H = this.game.height;
+            spawnBurst(this.game.particles, Math.random() * W, Math.random() * H * 0.6, ["#ff5fa2", "#ffd866", "#7af5ff", "#a45cff"][Math.floor(Math.random() * 4)], 2, 80, "spark");
+        }
+        // End-of-stage check
+        if (this.elapsed >= cfg.duration || this.state.lives <= 0) {
+            this.finishStage();
+        }
+    }
+    trySpawn() {
+        if (this.entities.filter((e) => e.alive).length >= this.cfg.maxConcurrent)
+            return;
+        const layout = this.game.layout;
+        const usedHoles = new Set(this.entities.map((e) => e.holeIndex));
+        const free = [];
+        for (let i = 0; i < layout.holes.length; i++) {
+            if (!usedHoles.has(i))
+                free.push(i);
+        }
+        if (free.length === 0)
+            return;
+        const holeIndex = free[Math.floor(Math.random() * free.length)];
+        const kind = pickEntityKind(this.cfg);
+        this.entities.push(createEntity(kind, holeIndex, this.cfg.idleDuration));
+    }
+    finishStage() {
+        if (this.gameOverScheduled)
+            return;
+        this.gameOverScheduled = true;
+        const remaining = Math.max(0, this.cfg.duration - this.elapsed);
+        const cleared = this.state.score >= this.cfg.goalScore && this.state.lives > 0;
+        const stars = computeStars(this.state, this.cfg.duration, remaining, this.cfg.goalScore);
+        const result = {
+            score: this.state.score,
+            cleared,
+            stage: this.stage,
+            remainingTime: remaining,
+            totalTime: this.cfg.duration,
+            hits: this.state.hits,
+            misses: this.state.misses,
+            flowerHits: this.state.flowerHits,
+            bombHits: this.state.bombHits,
+            bestCombo: this.state.bestCombo,
+            goldenHits: this.state.goldenHits,
+            stars: stars.total,
+            starBreakdown: {
+                accuracy: stars.accuracy,
+                combo: stars.combo,
+                timeBonus: stars.timeBonus,
+            },
+        };
+        audio.play(cleared ? "stage_clear" : "game_over");
+        void this.game.saveProgress(this.stage, this.state.score, stars.total);
+        setTimeout(() => this.game.toResult(result, !cleared), 600);
+    }
+    render(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        // draw holes
+        const layout = this.game.layout;
+        for (const h of layout.holes)
+            drawHole(ctx, h);
+        // draw entities — sort by y so back row is behind front row visually
+        const sorted = [...this.entities].sort((a, b) => layout.holes[a.holeIndex].cy - layout.holes[b.holeIndex].cy);
+        for (const e of sorted)
+            drawEntity(ctx, e, layout.holes[e.holeIndex]);
+        this.drawHUD(ctx);
+        if (this.intro > 0) {
+            this.drawIntroOverlay(ctx);
+        }
+        if (this.state.fever)
+            this.drawFeverOverlay(ctx);
+        if (this.paused)
+            this.drawPauseOverlay(ctx);
+    }
+    drawHUD(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        // Top translucent strip
+        ctx.fillStyle = "rgba(10,5,24,0.55)";
+        ctx.fillRect(0, 0, W, this.game.layout.topInset - 8);
+        // Stage
+        drawCenteredText(ctx, `STAGE ${this.stage}`, 80, 26, 22, "#ffd866", 800);
+        drawCenteredText(ctx, `목표 ${this.cfg.goalScore}`, 80, 54, 14, "rgba(255,255,255,0.75)", 600);
+        // Score (center)
+        drawCenteredText(ctx, this.state.score.toLocaleString(), W / 2, 36, 36, "#fff", 900);
+        drawCenteredText(ctx, `COMBO ${this.state.combo}${this.state.combo > 0 ? " ×" + (this.state.fever ? 3 : 1 + Math.floor(this.state.combo / 5)) : ""}`, W / 2, 72, 14, this.state.combo > 0 ? "#ffd866" : "rgba(255,255,255,0.55)", 700);
+        // Time remaining
+        const remaining = Math.max(0, this.cfg.duration - this.elapsed);
+        const timeColor = remaining < 5 ? "#ff5f87" : "#7af5ff";
+        drawCenteredText(ctx, `${remaining.toFixed(1)}s`, W - 90, 36, 26, timeColor, 800);
+        // Lives
+        drawHearts(ctx, W - 150, 64, 3, this.state.lives, 14);
+        // Goal progress bar
+        const barRect = { x: W / 2 - 160, y: 92, w: 320, h: 8 };
+        drawProgressBar(ctx, barRect, this.state.score / this.cfg.goalScore, this.state.score >= this.cfg.goalScore ? "#7af5ff" : "#a45cff");
+        // Fever gauge
+        const fgRect = { x: 16, y: 80, w: 130, h: 6 };
+        drawProgressBar(ctx, fgRect, this.state.feverGauge, "#ff5fa2");
+        drawCenteredText(ctx, this.state.fever ? "FEVER!" : "FEVER", 80, 92, 11, this.state.fever ? "#ffd866" : "rgba(255,255,255,0.55)", 800);
+        // Pause button (top-right corner inside HUD)
+        const pb = { x: W - 56, y: 8, w: 40, h: 40, label: this.paused ? "▶" : "II" };
+        drawButton(ctx, pb, false, false);
+        this._pauseBtn = pb;
+    }
+    drawIntroOverlay(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.fillRect(0, 0, W, H);
+        const t = 1.4 - this.intro;
+        const msg = this.intro > 0.5 ? "READY" : "GO!";
+        const size = msg === "GO!" ? 100 : 70;
+        const scale = 1 + Math.sin(t * 4) * 0.05;
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(scale, scale);
+        drawCenteredText(ctx, msg, 0, 0, size, msg === "GO!" ? "#7af5ff" : "#ffd866");
+        ctx.restore();
+    }
+    drawFeverOverlay(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        const alpha = 0.06 + Math.sin(this.game.time * 12) * 0.04;
+        ctx.fillStyle = `rgba(255,80,140,${Math.max(0.04, alpha)})`;
+        ctx.fillRect(0, 0, W, H);
+        drawCenteredText(ctx, "🔥 FEVER!", W / 2, 130, 28, "#ffd866", 900);
+    }
+    drawPauseOverlay(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, W, H);
+        drawCenteredText(ctx, "일시 정지", W / 2, H / 2 - 80, 44, "#fff");
+        for (const b of this.pauseButtons)
+            drawButton(ctx, b, false, b.label.includes("계속"));
+    }
+    onHit(hit) {
+        // Pause/play overlay handling first
+        if (this.paused) {
+            if (hit.keyIndex !== -1)
+                return;
+            for (let i = 0; i < this.pauseButtons.length; i++) {
+                if (pointInRect(hit.x, hit.y, this.pauseButtons[i])) {
+                    audio.play("click");
+                    if (i === 0)
+                        this.paused = false;
+                    else
+                        this.game.toMenu();
+                    return;
+                }
+            }
+            return;
+        }
+        if (this.intro > 0)
+            return;
+        // Pause button
+        const pb = this._pauseBtn;
+        if (pb && hit.keyIndex === -1 && pointInRect(hit.x, hit.y, pb)) {
+            this.paused = true;
+            audio.play("click");
+            return;
+        }
+        const layout = this.game.layout;
+        let holeIndex = -1;
+        let hitX = hit.x;
+        let hitY = hit.y;
+        if (hit.keyIndex !== -1) {
+            // Key input — map to the visual top-left 3x3 keypad against the actual grid
+            holeIndex = mapKeyIndexToHole(hit.keyIndex, layout.cols, layout.rows);
+            if (holeIndex === -1)
+                return;
+            hitX = layout.holes[holeIndex].cx;
+            hitY = layout.holes[holeIndex].cy;
+        }
+        else {
+            for (let i = 0; i < layout.holes.length; i++) {
+                if (pointInHole(hit.x, hit.y, layout.holes[i])) {
+                    holeIndex = i;
+                    break;
+                }
+            }
+        }
+        if (holeIndex === -1) {
+            onMiss(this.state);
+            return;
+        }
+        // Find topmost hittable entity in this hole
+        const target = this.entities.find((e) => e.holeIndex === holeIndex && e.alive && e.state !== 2 /* EntityState.Falling */ && e.rise > 0.3);
+        if (!target) {
+            onMiss(this.state);
+            return;
+        }
+        target.hitFlash = 0.4;
+        target.state = 2 /* EntityState.Falling */;
+        target.stateTimer = 0.18;
+        target._scored = true;
+        const h = layout.holes[holeIndex];
+        switch (target.kind) {
+            case "mole": {
+                const pts = onHitMole(this.state);
+                spawnBurst(this.game.particles, h.cx, h.cy - h.ry, "#a8845a", 14, 240, "dot");
+                spawnFloatingText(this.game.floatingTexts, h.cx, h.cy - h.ry * 2, `+${pts}`, "#ffd866", 24);
+                break;
+            }
+            case "golden": {
+                const pts = onHitGolden(this.state);
+                spawnBurst(this.game.particles, h.cx, h.cy - h.ry, "#ffd866", 24, 320, "star");
+                spawnFloatingText(this.game.floatingTexts, h.cx, h.cy - h.ry * 2, `+${pts} GOLDEN!`, "#ffd866", 28);
+                break;
+            }
+            case "bomb": {
+                onHitBomb(this.state);
+                spawnBurst(this.game.particles, h.cx, h.cy - h.ry, "#ff7a40", 30, 360, "spark");
+                spawnFloatingText(this.game.floatingTexts, h.cx, h.cy - h.ry * 2, "-300 💥", "#ff5f87", 26);
+                break;
+            }
+            case "flower": {
+                onHitFlower(this.state);
+                spawnBurst(this.game.particles, h.cx, h.cy - h.ry, "#ff5fa2", 26, 320, "dot");
+                spawnFloatingText(this.game.floatingTexts, h.cx, h.cy - h.ry * 2, "-500 🌸", "#ff5f87", 26);
+                break;
+            }
+        }
+    }
+    onKey(key) {
+        if (key === "Escape" || key === "p" || key === "P") {
+            this.paused = !this.paused;
+            audio.play("click");
+        }
+        else if (key.toLowerCase() === "m") {
+            audio.toggleMuted();
+        }
+    }
+}
+/**
+ * Map a 3×3 keypad index (0..8 in row-major order) to a hole index
+ * in the actual grid layout (which may be 3×3, 4×3, or 3×4).
+ * We pick the visually closest cell so QWE feels like top row, ZXC like bottom.
+ */
+function mapKeyIndexToHole(keyIdx, cols, rows) {
+    const kr = Math.floor(keyIdx / 3);
+    const kc = keyIdx % 3;
+    // Stretch the 3×3 onto the available grid
+    const tr = Math.min(rows - 1, Math.round((kr / 2) * (rows - 1)));
+    const tc = Math.min(cols - 1, Math.round((kc / 2) * (cols - 1)));
+    return tr * cols + tc;
+}
+//# sourceMappingURL=play.js.map
+// ===== dist/scenes/result.js =====
+/**
+ * Result scene — animated stars, stats, advance / retry / menu.
+ */
+
+
+
+class ResultScene {
+    constructor(game, result, fromGameOver) {
+        this.buttons = [];
+        this.anim = 0;
+        this.celebratedStars = -1;
+        this.game = game;
+        this.result = result;
+        this.fromGameOver = fromGameOver;
+    }
+    enter() {
+        this.layoutButtons();
+    }
+    exit() {
+        /* nothing */
+    }
+    layoutButtons() {
+        const W = this.game.width;
+        const H = this.game.height;
+        const bw = Math.min(240, W * 0.5);
+        const bh = 54;
+        const y = H - 96;
+        const next = this.result.cleared
+            ? { x: 0, y, w: bw, h: bh, label: "다음 스테이지 ▶" }
+            : { x: 0, y, w: bw, h: bh, label: "다시 시도" };
+        const menu = { x: 0, y, w: bw, h: bh, label: "메뉴로" };
+        const gap = 16;
+        const total = bw * 2 + gap;
+        next.x = W / 2 - total / 2;
+        menu.x = next.x + bw + gap;
+        this.buttons = [next, menu];
+    }
+    update(dt) {
+        this.anim += dt;
+        // Spawn celebratory particles as stars pop in
+        const earned = this.result.stars;
+        for (let i = 0; i < earned; i++) {
+            const startTime = i * 0.25;
+            if (this.anim >= startTime && this.celebratedStars < i) {
+                this.celebratedStars = i;
+                const W = this.game.width;
+                const H = this.game.height;
+                const spacing = 60;
+                const start = W / 2 - ((earned - 1) * spacing) / 2;
+                const x = start + i * spacing;
+                const y = H * 0.4;
+                spawnBurst(this.game.particles, x, y, "#ffd866", 30, 280, "star");
+                audio.play("combo");
+            }
+        }
+    }
+    render(ctx) {
+        const W = this.game.width;
+        const H = this.game.height;
+        // Dim background
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(0, 0, W, H);
+        // Title
+        const title = this.fromGameOver
+            ? "GAME OVER"
+            : this.result.cleared
+                ? "STAGE CLEAR!"
+                : "실패…";
+        const titleColor = this.fromGameOver ? "#ff5f87" : this.result.cleared ? "#7af5ff" : "#ffa64a";
+        drawCenteredText(ctx, title, W / 2, H * 0.18, 54, titleColor, 900);
+        drawCenteredText(ctx, `STAGE ${this.result.stage}`, W / 2, H * 0.26, 20, "rgba(255,255,255,0.7)", 700);
+        // Stars
+        drawStars(ctx, W / 2, H * 0.4, 3, this.result.stars, 30, this.anim);
+        // Stats panel
+        const panelW = Math.min(440, W * 0.85);
+        const panelH = 170;
+        const panel = { x: W / 2 - panelW / 2, y: H * 0.5, w: panelW, h: panelH };
+        drawPanel(ctx, panel);
+        const rowH = 28;
+        const rows = [
+            ["점수", this.result.score.toLocaleString(), "#fff"],
+            [
+                "정확도",
+                `${(this.result.starBreakdown.accuracy * 100).toFixed(0)}%`,
+                "#7af5ff",
+            ],
+            ["최대 콤보", `${this.result.bestCombo}`, "#ffd866"],
+            [
+                "황금/폭탄/꽃",
+                `${this.result.goldenHits} / ${this.result.bombHits} / ${this.result.flowerHits}`,
+                "rgba(255,255,255,0.8)",
+            ],
+        ];
+        ctx.textBaseline = "middle";
+        for (let i = 0; i < rows.length; i++) {
+            const y = panel.y + 20 + i * rowH;
+            ctx.font = `600 14px system-ui, sans-serif`;
+            ctx.fillStyle = "rgba(255,255,255,0.65)";
+            ctx.textAlign = "left";
+            ctx.fillText(rows[i][0], panel.x + 24, y);
+            ctx.font = `800 16px system-ui, sans-serif`;
+            ctx.fillStyle = rows[i][2];
+            ctx.textAlign = "right";
+            ctx.fillText(rows[i][1], panel.x + panel.w - 24, y);
+        }
+        // Buttons
+        for (const b of this.buttons) {
+            const primary = b.label.includes("다음") || b.label.includes("다시");
+            drawButton(ctx, b, false, primary);
+        }
+    }
+    onHit(hit) {
+        if (hit.keyIndex !== -1)
+            return;
+        for (let i = 0; i < this.buttons.length; i++) {
+            if (pointInRect(hit.x, hit.y, this.buttons[i])) {
+                audio.play("click");
+                if (i === 0) {
+                    if (this.result.cleared)
+                        this.game.toPlay(this.result.stage + 1);
+                    else
+                        this.game.toPlay(this.result.stage);
+                }
+                else {
+                    this.game.toMenu();
+                }
+                return;
+            }
+        }
+    }
+    onKey(key) {
+        if (key === "Enter" || key === " ") {
+            if (this.result.cleared)
+                this.game.toPlay(this.result.stage + 1);
+            else
+                this.game.toPlay(this.result.stage);
+        }
+        else if (key === "Escape") {
+            this.game.toMenu();
+        }
+    }
+}
+//# sourceMappingURL=result.js.map
+// ===== dist/game.js =====
+/**
+ * Main game controller — owns scenes, render loop and shared state.
+ */
+
+
+
+
+
+
+
+
+class Game {
+    constructor(canvas) {
+        this.save = { ...DEFAULT_SAVE };
+        this.particles = [];
+        this.floatingTexts = [];
+        /** seconds since game start (for time-based animations) */
+        this.time = 0;
+        this.scene = null;
+        this.lastTs = 0;
+        this.running = false;
+        /** internal canvas resolution */
+        this.vWidth = 960;
+        this.vHeight = 640;
+        this.frame = (ts) => {
+            if (!this.running)
+                return;
+            const dt = Math.min(0.05, (ts - this.lastTs) / 1000); // clamp 50ms
+            this.lastTs = ts;
+            this.time += dt;
+            try {
+                updateParticles(this.particles, dt);
+                updateFloatingTexts(this.floatingTexts, dt);
+                if (this.scene)
+                    this.scene.update(dt);
+            }
+            catch (e) {
+                console.warn("[update]", e);
+            }
+            try {
+                this.render();
+            }
+            catch (e) {
+                console.warn("[render]", e);
+                this.renderFallback();
+            }
+            requestAnimationFrame(this.frame);
+        };
+        this.canvas = canvas;
+        const c = canvas.getContext("2d");
+        if (!c)
+            throw new Error("Canvas 2D context unavailable");
+        this.ctx = c;
+        this.input = new InputManager(canvas);
+        this.layout = computeLayout(this.vWidth, this.vHeight);
+        this.fitCanvas();
+        window.addEventListener("resize", () => this.fitCanvas());
+        this.input.onHit((hit) => {
+            audio.resume();
+            if (this.scene)
+                this.scene.onHit(hit);
+        });
+        this.input.onKey((key) => {
+            audio.resume();
+            if (this.scene)
+                this.scene.onKey(key);
+        });
+    }
+    get width() {
+        return this.vWidth;
+    }
+    get height() {
+        return this.vHeight;
+    }
+    async start() {
+        try {
+            this.save = await loadSave();
+        }
+        catch (_e) {
+            this.save = { ...DEFAULT_SAVE };
+        }
+        this.setScene(new MenuScene(this));
+        this.running = true;
+        this.lastTs = performance.now();
+        requestAnimationFrame(this.frame);
+    }
+    setScene(s) {
+        if (this.scene) {
+            try {
+                this.scene.exit();
+            }
+            catch (e) {
+                console.warn("[scene exit]", e);
+            }
+        }
+        this.scene = s;
+        try {
+            this.scene.enter();
+        }
+        catch (e) {
+            console.warn("[scene enter]", e);
+        }
+    }
+    toMenu() {
+        this.setScene(new MenuScene(this));
+    }
+    toPlay(stage) {
+        this.setScene(new PlayScene(this, stage));
+    }
+    toResult(result, fromGameOver) {
+        this.setScene(new ResultScene(this, result, fromGameOver));
+    }
+    async saveProgress(stage, score, stars) {
+        this.save.bestScore = Math.max(this.save.bestScore, score);
+        if (stars > 0) {
+            this.save.stageStars[stage] = Math.max(this.save.stageStars[stage] ?? 0, stars);
+            this.save.maxStageReached = Math.max(this.save.maxStageReached, stage + 1);
+        }
+        this.save.totalStars = Object.values(this.save.stageStars).reduce((a, b) => a + b, 0);
+        this.save.lastPlayed = Date.now();
+        try {
+            await persistSave(this.save);
+        }
+        catch (e) {
+            console.warn("[save]", e);
+        }
+    }
+    render() {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.clearRect(0, 0, this.vWidth, this.vHeight);
+        this.drawBackground();
+        if (this.scene)
+            this.scene.render(ctx);
+        drawParticles(ctx, this.particles);
+        drawFloatingTexts(ctx, this.floatingTexts);
+        ctx.restore();
+    }
+    renderFallback() {
+        const ctx = this.ctx;
+        ctx.fillStyle = "#0a0518";
+        ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+        ctx.fillStyle = "#ff6464";
+        ctx.font = "20px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("렌더링 오류 — 새로고침해 주세요", this.vWidth / 2, this.vHeight / 2);
+    }
+    drawBackground() {
+        const ctx = this.ctx;
+        const W = this.vWidth;
+        const H = this.vHeight;
+        // sky gradient
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.7);
+        skyGrad.addColorStop(0, "#1b0a3a");
+        skyGrad.addColorStop(0.6, "#2a1652");
+        skyGrad.addColorStop(1, "#42206a");
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, W, H);
+        // stars
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        for (let i = 0; i < 30; i++) {
+            const x = ((i * 977) % W);
+            const y = ((i * 613) % (H * 0.4));
+            const s = (i % 3) + 1;
+            const tw = 0.5 + 0.5 * Math.sin(this.time * 2 + i);
+            ctx.globalAlpha = 0.3 + tw * 0.4;
+            ctx.fillRect(x, y, s, s);
+        }
+        ctx.globalAlpha = 1;
+        // ground
+        const groundGrad = ctx.createLinearGradient(0, H * 0.6, 0, H);
+        groundGrad.addColorStop(0, "#3a2410");
+        groundGrad.addColorStop(0.4, "#241406");
+        groundGrad.addColorStop(1, "#100a03");
+        ctx.fillStyle = groundGrad;
+        ctx.fillRect(0, H * 0.55, W, H * 0.45);
+        // ground horizon
+        ctx.strokeStyle = "rgba(0,0,0,0.4)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, H * 0.55);
+        ctx.lineTo(W, H * 0.55);
+        ctx.stroke();
+    }
+    fitCanvas() {
+        const rect = this.canvas.parentElement?.getBoundingClientRect() ?? {
+            width: window.innerWidth,
+            height: window.innerHeight,
+        };
+        const cssW = rect.width;
+        const cssH = rect.height;
+        const targetAR = 3 / 2;
+        const screenAR = cssW / cssH;
+        let dispW;
+        let dispH;
+        let virtualAR;
+        // Choose orientation based on actual viewport
+        if (screenAR < 0.9) {
+            // portrait
+            this.vWidth = 540;
+            this.vHeight = 800;
+            virtualAR = this.vWidth / this.vHeight;
+        }
+        else {
+            this.vWidth = 960;
+            this.vHeight = 640;
+            virtualAR = this.vWidth / this.vHeight;
+        }
+        this.canvas.width = this.vWidth;
+        this.canvas.height = this.vHeight;
+        if (screenAR > virtualAR) {
+            dispH = cssH;
+            dispW = cssH * virtualAR;
+        }
+        else {
+            dispW = cssW;
+            dispH = cssW / virtualAR;
+        }
+        this.canvas.style.width = `${dispW}px`;
+        this.canvas.style.height = `${dispH}px`;
+        this.layout = computeLayout(this.vWidth, this.vHeight);
+    }
+}
+//# sourceMappingURL=game.js.map
+// ===== dist/main.js =====
+/**
+ * Entry point — boot the game once the DOM is ready.
+ */
+
+function boot() {
+    const canvas = document.getElementById("game");
+    if (!canvas) {
+        console.error("Canvas element #game not found");
+        return;
+    }
+    try {
+        const game = new Game(canvas);
+        void game.start();
+        window._game = game;
+    }
+    catch (e) {
+        console.error("Boot failed", e);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+            ctx.fillStyle = "#0a0518";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#ff6464";
+            ctx.font = "20px system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("게임 초기화 실패", canvas.width / 2, canvas.height / 2);
+        }
+    }
+}
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+}
+else {
+    boot();
+}
+//# sourceMappingURL=main.js.map
+})();
+</script>
+</body>
+</html>
