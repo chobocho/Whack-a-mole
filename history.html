@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>🔨 Whack-a-mole — 작업 히스토리</title>
+  <style>
+    :root {
+      --bg: #0a0518;
+      --panel: #1a0e2e;
+      --panel-2: #241445;
+      --border: rgba(180,140,255,0.35);
+      --text: #e8e0ff;
+      --muted: rgba(232,224,255,0.6);
+      --gold: #ffd866;
+      --pink: #ff5fa2;
+      --cyan: #7af5ff;
+      --purple: #a45cff;
+      --green: #7af5b8;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+      line-height: 1.65;
+    }
+    body {
+      background:
+        radial-gradient(ellipse at top, #2a1652 0%, #0a0518 60%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    header {
+      text-align: center;
+      padding: 32px 0 48px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    h1 {
+      font-size: clamp(28px, 5vw, 44px);
+      margin: 0 0 12px;
+      color: var(--gold);
+      text-shadow: 0 2px 24px rgba(255,216,102,0.3);
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .meta {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 20px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .meta span {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+    }
+    h2 {
+      font-size: 22px;
+      margin: 48px 0 16px;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    h2::before {
+      content: "";
+      width: 4px;
+      height: 22px;
+      background: var(--cyan);
+      border-radius: 2px;
+    }
+    h3 {
+      color: var(--gold);
+      font-size: 17px;
+      margin: 24px 0 8px;
+    }
+    p { margin: 8px 0; }
+    code {
+      background: rgba(0,0,0,0.4);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.92em;
+      color: var(--gold);
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    }
+    pre {
+      background: #050208;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #cfc4ee;
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+    .timeline {
+      position: relative;
+      margin: 24px 0;
+      padding-left: 28px;
+      border-left: 2px solid var(--border);
+    }
+    .step {
+      position: relative;
+      margin-bottom: 32px;
+      padding: 20px 24px;
+      background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .step::before {
+      content: "";
+      position: absolute;
+      left: -36px;
+      top: 26px;
+      width: 14px;
+      height: 14px;
+      background: var(--purple);
+      border: 3px solid var(--bg);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px var(--border);
+    }
+    .step.done::before { background: var(--green); }
+    .step-head {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .step-num {
+      color: var(--pink);
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.05em;
+    }
+    .step-title {
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--text);
+      margin: 0;
+    }
+    .step ul, .step ol { padding-left: 22px; margin: 8px 0; }
+    .step li { margin: 4px 0; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 16px 0;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+    }
+    .card .label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .card .value {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--gold);
+      margin-top: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(180,140,255,0.15);
+    }
+    th {
+      color: var(--cyan);
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    td code { font-size: 12px; }
+
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(164,92,255,0.2);
+      color: var(--purple);
+      border: 1px solid rgba(164,92,255,0.4);
+      margin-right: 4px;
+      font-weight: 600;
+    }
+    .tag.green { background: rgba(122,245,184,0.15); color: var(--green); border-color: rgba(122,245,184,0.4); }
+    .tag.gold { background: rgba(255,216,102,0.15); color: var(--gold); border-color: rgba(255,216,102,0.4); }
+    .tag.pink { background: rgba(255,95,162,0.15); color: var(--pink); border-color: rgba(255,95,162,0.4); }
+
+    .commit {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      padding: 10px 14px;
+      background: rgba(0,0,0,0.3);
+      border-left: 3px solid var(--purple);
+      border-radius: 4px;
+      margin: 6px 0;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 13px;
+    }
+    .commit .hash { color: var(--gold); font-weight: 700; }
+    .commit .msg { color: var(--text); }
+
+    footer {
+      margin-top: 64px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+    a { color: var(--cyan); }
+    .check { color: var(--green); margin-right: 6px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🔨 두더지 잡기 — 작업 히스토리</h1>
+  <div class="subtitle">Whack-a-mole · TypeScript + Canvas + IndexedDB · 외부 의존성 0</div>
+  <div class="meta">
+    <span>📅 2026-06-06</span>
+    <span>🗂️ 21 files</span>
+    <span>📝 2,601 LOC</span>
+    <span>📦 release/index.html 65.6 KB</span>
+    <span>🚀 3 commits</span>
+  </div>
+</header>
+
+<h2>📋 개요</h2>
+<p>
+  <code>CLAUDE.md</code>에 정의된 명세를 기반으로,
+  <strong>외부 라이브러리·프레임워크 0%</strong>로 두더지 잡기 게임을 처음부터 구현했습니다.
+  TypeScript로 작성하고, 자체 작성한 ESM→IIFE 번들러로 단일 HTML 파일로 묶어 배포할 수 있도록 빌드 파이프라인까지 완성했습니다.
+</p>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="label">소스 파일</div>
+    <div class="value">14개 (.ts + .mjs)</div>
+  </div>
+  <div class="card">
+    <div class="label">총 라인 수</div>
+    <div class="value">2,601 LOC</div>
+  </div>
+  <div class="card">
+    <div class="label">번들 결과</div>
+    <div class="value">65.6 KB (단일 파일)</div>
+  </div>
+  <div class="card">
+    <div class="label">외부 의존성</div>
+    <div class="value">0 (devDep: tsc만)</div>
+  </div>
+</div>
+
+<h2>🛠️ 작업 단계</h2>
+
+<div class="timeline">
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 1</span>
+      <h3 class="step-title">프로젝트 구조 및 설정 파일 생성</h3>
+    </div>
+    <p>TypeScript 기반의 최소 설정으로 프로젝트 스캐폴드.</p>
+    <ul>
+      <li><code>package.json</code> — <span class="tag">devDep: typescript</span> 그 외 의존성 없음</li>
+      <li><code>tsconfig.json</code> — strict 모드, ES2020 타겟, <code>moduleResolution: bundler</code></li>
+      <li><code>index.html</code> — Canvas 단일 엘리먼트 + 안전한 viewport 설정</li>
+      <li><code>.gitignore</code> — <code>dist/</code>, <code>node_modules/</code> 제외</li>
+    </ul>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 2</span>
+      <h3 class="step-title">코어 시스템 (스토리지·오디오·입력)</h3>
+    </div>
+    <ul>
+      <li><code>src/storage.ts</code> — <span class="tag green">IndexedDB 우선</span> 실패 시 <span class="tag pink">LocalStorage 미러 백업</span></li>
+      <li><code>src/audio.ts</code> — Web Audio API <code>OscillatorNode</code>로 모든 효과음 실시간 합성</li>
+      <li><code>src/input.ts</code> — 마우스 / 터치 / 키보드(QWE-ASD-ZXC, NumPad) 통합 처리 + 캔버스 좌표 정밀 변환</li>
+    </ul>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 3</span>
+      <h3 class="step-title">엔티티 및 절차적 렌더링</h3>
+    </div>
+    <p>모든 그래픽을 <strong>Canvas <code>arc</code>·<code>bezierCurve</code>로 절차 생성</strong> — 외부 이미지 0개.</p>
+    <ul>
+      <li>🟤 <strong>일반 두더지</strong> — 그라디언트 몸체, 베지어 코, 휘파람 모양</li>
+      <li>👑 <strong>황금 두더지</strong> — 5각 왕관 + 보석</li>
+      <li>💣 <strong>폭탄</strong> — 펄스 스파크, 베지어 도화선</li>
+      <li>🌸 <strong>꽃 (트랩)</strong> — 6장 꽃잎 + 위험 펄스 아웃라인</li>
+      <li>✨ <strong>파티클 시스템</strong> — dot/star/spark 3종</li>
+      <li>💬 <strong>플로팅 텍스트</strong> — <code>+500 GOLDEN!</code>, <code>-500 🌸</code> 등</li>
+    </ul>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 4</span>
+      <h3 class="step-title">게임 로직 (스테이지·콤보·피버·별점)</h3>
+    </div>
+    <ul>
+      <li><code>src/stage.ts</code> — 스테이지별 확률 휴리스틱
+        <ul>
+          <li>스테이지 2+ : 황금 두더지 등장</li>
+          <li>스테이지 6+ : 폭탄 등장</li>
+          <li><strong>스테이지 10+ : 꽃(트랩) 등장</strong></li>
+          <li>스테이지 15+ : 고난도 복합 패턴</li>
+        </ul>
+      </li>
+      <li><code>src/scoring.ts</code> — 점수·콤보·라이프
+        <ul>
+          <li>콤보 배율: 5콤보마다 +1배</li>
+          <li>피버: 12콤보 또는 게이지 풀 시 <strong>5초간 ×3 배율</strong></li>
+          <li>별점: 정확도 ≥0.88, 콤보 ≥15, 잔여시간 ≥20% 만족 시 ★★★</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 5</span>
+      <h3 class="step-title">씬 시스템 및 메인 게임 루프</h3>
+    </div>
+    <ul>
+      <li><code>src/game.ts</code> — 씬 매니저, <code>requestAnimationFrame</code> 통합 루프, 반응형 캔버스 (와이드 960×640 / 세로 540×800 자동 전환)</li>
+      <li><code>src/scenes/menu.ts</code> — Canvas UI 메뉴 (제목 펄스, 스테이지 선택, 최고기록 패널, 별점 표시)</li>
+      <li><code>src/scenes/play.ts</code> — 플레이 씬 (READY/GO! 인트로, HUD, 일시정지)</li>
+      <li><code>src/scenes/result.ts</code> — 결과 씬 (별점 등장 애니메이션 + 폭죽 파티클)</li>
+      <li><code>src/ui.ts</code> — 둥근 패널, 버튼, 진행바, 별, 하트 등 순수 Canvas UI 프리미티브</li>
+    </ul>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 6</span>
+      <h3 class="step-title">빌드 및 타입 검증</h3>
+    </div>
+    <p><code>tsc --noEmit</code> → 타입 에러 0개. <code>dist/</code> 출력 정상.</p>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 7</span>
+      <h3 class="step-title">단일 파일 릴리즈 빌드 추가</h3>
+    </div>
+    <p>사용자 요청: <em>"release 폴더에 index.html 하나의 파일로 산출되는 build.sh를 추가해줘"</em></p>
+    <ul>
+      <li><code>tools/bundle.mjs</code> — 103줄짜리 자체 번들러
+        <ol>
+          <li><code>dist/</code> 순회하여 모든 <code>.js</code> 수집</li>
+          <li><code>import</code> 구문 파싱 → 의존성 그래프 구축</li>
+          <li>위상 정렬 (deps 먼저, <code>main.js</code> 마지막)</li>
+          <li><code>import</code>/<code>export</code> 키워드 strip</li>
+          <li>IIFE로 래핑 → <code>index.html</code>의 <code>&lt;script type=module&gt;</code> 태그를 인라인 <code>&lt;script&gt;</code>로 치환</li>
+        </ol>
+      </li>
+      <li><code>build.sh</code> — 오케스트레이션 (clean → tsc → bundle.mjs → release/)</li>
+      <li>결과물: <code>release/index.html</code> — <strong>65.6 KB 단일 파일</strong>, <code>file://</code>로도 즉시 실행</li>
+    </ul>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 8</span>
+      <h3 class="step-title">Commit &amp; Push</h3>
+    </div>
+    <div class="commit">
+      <span class="hash">793d24d</span>
+      <span class="msg">Implement Whack-a-mole game with single-file release build</span>
+    </div>
+  </div>
+
+  <div class="step done">
+    <div class="step-head">
+      <span class="step-num">STEP 9</span>
+      <h3 class="step-title">README.md 작성</h3>
+    </div>
+    <p>기능 목록, 조작법 표, 빌드 방법, 프로젝트 구조 트리, 기술 스택 정리.</p>
+    <div class="commit">
+      <span class="hash">efda401</span>
+      <span class="msg">Add README with features, controls, and build instructions</span>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-head">
+      <span class="step-num">STEP 10</span>
+      <h3 class="step-title">작업 히스토리 정리 (현재 문서)</h3>
+    </div>
+    <p>지금까지의 작업 내역을 자체 완결된 <code>history.html</code>로 정리.</p>
+  </div>
+
+</div>
+
+<h2>📁 최종 디렉터리 구조</h2>
+<pre><code>.
+├── build.sh              # 빌드 오케스트레이션
+├── README.md             # 프로젝트 문서
+├── history.html          # 이 문서
+├── index.html            # 개발용 HTML
+├── package.json          # devDep: typescript only
+├── tsconfig.json
+├── src/
+│   ├── main.ts                (  35 lines)
+│   ├── game.ts                ( 249 lines)
+│   ├── audio.ts               ( 202 lines)
+│   ├── storage.ts             ( 125 lines)
+│   ├── input.ts               (  92 lines)
+│   ├── layout.ts              (  56 lines)
+│   ├── entities.ts            ( 527 lines)
+│   ├── stage.ts               (  84 lines)
+│   ├── scoring.ts             ( 163 lines)
+│   ├── ui.ts                  ( 182 lines)
+│   └── scenes/
+│       ├── menu.ts            ( 174 lines)
+│       ├── play.ts            ( 408 lines)
+│       └── result.ts          ( 170 lines)
+├── tools/
+│   └── bundle.mjs             ( 103 lines)
+└── release/
+    └── index.html             (  65.6 KB, 단일 파일)
+</code></pre>
+
+<h2>🚀 Git 히스토리</h2>
+<div class="commit">
+  <span class="hash">efda401</span>
+  <span class="msg">Add README with features, controls, and build instructions</span>
+</div>
+<div class="commit">
+  <span class="hash">793d24d</span>
+  <span class="msg">Implement Whack-a-mole game with single-file release build</span>
+</div>
+<div class="commit">
+  <span class="hash">80667f0</span>
+  <span class="msg">Initial commit</span>
+</div>
+
+<h2>🎯 구현된 게임 명세</h2>
+<table>
+  <thead>
+    <tr><th>명세 항목</th><th>구현 상태</th><th>위치</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>100% Canvas UI</td><td><span class="check">✓</span>완료</td><td><code>src/ui.ts</code> + 모든 씬</td></tr>
+    <tr><td>requestAnimationFrame 통합 루프</td><td><span class="check">✓</span>완료</td><td><code>src/game.ts</code></td></tr>
+    <tr><td>스테이지 승급 + 목표 점수</td><td><span class="check">✓</span>완료</td><td><code>src/stage.ts</code></td></tr>
+    <tr><td>3성 별점 (정확도+콤보+잔여시간)</td><td><span class="check">✓</span>완료</td><td><code>src/scoring.ts</code></td></tr>
+    <tr><td>일반·황금·폭탄 두더지</td><td><span class="check">✓</span>완료</td><td><code>src/entities.ts</code></td></tr>
+    <tr><td>🌸 10판부터 꽃 트랩</td><td><span class="check">✓</span>완료</td><td><code>stage.ts</code> + <code>entities.ts</code></td></tr>
+    <tr><td>콤보 + 피버 시스템</td><td><span class="check">✓</span>완료</td><td><code>src/scoring.ts</code></td></tr>
+    <tr><td>출현 패턴 휴리스틱 상태머신</td><td><span class="check">✓</span>완료</td><td><code>src/stage.ts</code></td></tr>
+    <tr><td>IndexedDB 자동 저장 + LS 폴백</td><td><span class="check">✓</span>완료</td><td><code>src/storage.ts</code></td></tr>
+    <tr><td>반응형 그리드 (와이드/세로)</td><td><span class="check">✓</span>완료</td><td><code>src/layout.ts</code></td></tr>
+    <tr><td>멀티 입력 (마우스/터치/키패드)</td><td><span class="check">✓</span>완료</td><td><code>src/input.ts</code></td></tr>
+    <tr><td>절차적 Canvas 그래픽 (arc + bezier)</td><td><span class="check">✓</span>완료</td><td><code>src/entities.ts</code></td></tr>
+    <tr><td>Web Audio 신시사이저 효과음</td><td><span class="check">✓</span>완료</td><td><code>src/audio.ts</code></td></tr>
+    <tr><td>꽃 타격 시 "삐-" 경고음</td><td><span class="check">✓</span>완료</td><td><code>audio.ts</code> <code>flower</code></td></tr>
+    <tr><td>에러 핸들링 + Canvas 폴백</td><td><span class="check">✓</span>완료</td><td><code>game.ts</code> + <code>main.ts</code></td></tr>
+  </tbody>
+</table>
+
+<h2>💡 기술적 결정 노트</h2>
+
+<h3>왜 자체 번들러를 만들었나</h3>
+<p>
+  webpack·vite·esbuild 같은 외부 번들러를 쓰면 명세의 "외부 라이브러리 0%" 원칙에 어긋납니다.
+  TypeScript의 <code>--outFile</code>은 <code>module: amd/system</code>만 지원하고 별도 런타임을 필요로 합니다.
+  대신 103줄짜리 작은 노드 스크립트로 ESM 출력을 위상 정렬해 IIFE로 묶는 방식을 택했습니다.
+  의존성 그래프 파싱, 키워드 stripping, HTML 인라인까지 자체 구현되어 어떤 환경에서도 동작합니다.
+</p>
+
+<h3>왜 모든 그래픽을 절차 생성했나</h3>
+<p>
+  외부 이미지 파일이 있으면 빌드 산출물이 다중 파일이 되어 "단일 HTML" 목표와 충돌합니다.
+  <code>arc</code>·<code>bezierCurve</code>·<code>radialGradient</code>로 두더지·왕관·꽃잎·폭탄까지 모두 그렸고,
+  결과적으로 <strong>65.6 KB</strong> 단일 파일에 게임 전체가 들어갑니다.
+</p>
+
+<h3>왜 모든 사운드를 합성했나</h3>
+<p>
+  같은 이유로 mp3/wav 파일도 인라인 base64로 넣으면 용량이 폭증합니다.
+  Web Audio API의 <code>OscillatorNode</code> + <code>BiquadFilterNode</code>로 타격음·황금음·폭발음·피버 팡파레까지 실시간 합성.
+  꽃 타격 시의 "삐-" 경고음은 <code>sawtooth</code> 파형 250ms로 명세를 충실히 구현했습니다.
+</p>
+
+<h3>왜 ScoreState를 객체로 들고 다니나</h3>
+<p>
+  순수 함수형으로 <code>onHitMole(state) → newState</code> 패턴을 쓸 수도 있었지만,
+  게임 루프에서 매 프레임 객체를 복사하는 비용을 피하기 위해 가변 상태 + 명령형 업데이트를 택했습니다.
+  덕분에 콤보·피버 게이지 같은 누적 상태도 단순한 한 줄 업데이트로 처리됩니다.
+</p>
+
+<footer>
+  🔨 Whack-a-mole · 2026-06-06 · TypeScript · Canvas · IndexedDB
+</footer>
+
+</div>
+</body>
+</html>
